@@ -3,12 +3,16 @@ import networkx as nx
 from copy import copy
 import random
 from random import random as rnd, randint as rndi
-from math import log, exp, sqrt
+from math import log, log10, exp, sqrt
 import matplotlib.pyplot as plt
 import numpy as np
 import time
 
 from util import *
+
+# Configure save dialog to use current directory
+import matplotlib as mpl
+mpl.rcParams["savefig.directory"] = ""
 
 
 def PRINT_SIM_INFO_DETAILED(ns, i, mu_h, pp, x):
@@ -55,15 +59,15 @@ def VERTEX_SEARCH(x, M0):
         Gx.add_edge(E[i][0], E[i][1], weight=logp[i])
     assert(V[0] in Gx.nodes())
 
-    # Vx2 contains all vertices that could be reachable from s
+    # Vx2 contains all vertices that may be reachable from s
     Vx2 = list(nx.descendants(Gx, V[0]))
     assert(all(Vi in Vx2 for Vi in Vx1))
     
-    # removing nodes in Gx that are not in Vx2
+    # Remove nodes in Gx that are not in Vx2
     for Vi in Gx.nodes():
         if Vi != V[0] and not Vi in Vx2: Gx.remove_node(Vi)
     
-    # initial setup for vertex search
+    # Initial setup for vertex search
     Vx = [Vi for Vi in Vx2 if not Vi in Vx1]
     Nx = len(Vx)
     SearchTree = [([1] * Nx, 0)]
@@ -85,7 +89,7 @@ def VERTEX_SEARCH(x, M0):
             Vy = [V[0]] + Vx1 + [Vx[k] for k in range(Nx) if y[k]==1]
             Gy = Gx.copy()
 
-            # remove nodes not in Vy
+            # Remove nodes not in Vy
             for Vi in Gy.nodes():
                 if not Vi in Vy: Gy.remove_node(Vi)
 
@@ -99,7 +103,7 @@ def VERTEX_SEARCH(x, M0):
     return px
 
 
-def CALC_MAX_PROB(x, M0):
+def CALC_MINSET_MAXPROB(x, M0):
     key = TO_STRING(x[:M0])
 
     if key in CSET:
@@ -112,39 +116,41 @@ def CALC_MAX_PROB(x, M0):
         CSET[key] = 0; return 0
 
     px = VERTEX_SEARCH(x, M0)
+    CSET[key] = px
     
     return px
 
 
-# importance sampling for mu.
+# Importance sampling for mu.
 def EST_MU(Ns):
     Mu = [0] * Ns
     Loss = [0] * Ns
     Elap = [0] * Ns
     
     for ns in range(Ns):
-        t1 = time.time()
+        start_time = time.time()
         x, w = SAMPLE_PPLUS(ns)
-        t2 = time.time()
+        end_time = time.time()
         Mu[ns] = w
         Loss[ns] = CALC_LOSS(x)
-        Elap[ns] = t2 - t1
+        Elap[ns] = end_time - start_time
+        
         if DEBUG: PRINT_SIM_INFO(ns, x, w)
-
+        
     return Mu, Loss, Elap
 
 
-# sampling x according to the change of measure P^+
+# Sample x according to the change of measure P^+
 def SAMPLE_PPLUS(ns):
     x = [0] * M
     w = 1
     
     for i in range(M):
-        mu_h = [0,0]
+        mu_h = [0, 0]
 
         for k in range(2):
-            y = x[:i] + [k] + [0]*(M-i-1)
-            mu_h[k] = CALC_MAX_PROB(y,i+1)
+            y = x[:i] + [k] + [0] * (M-i-1)
+            mu_h[k] = CALC_MINSET_MAXPROB(y, i+1)
             
         pp = p[i] * mu_h[1] / (p[i] * mu_h[1] + (1 - p[i]) * mu_h[0])
 
@@ -165,7 +171,7 @@ def SAMPLE_PPLUS(ns):
     return x, w
 
 
-''' brute force the value of mu_i(x_1,...,x_M0).'''
+''' Brute force the value of mu_i(x_1,...,x_M0).'''
 def BRUTE_FORCE(x, M0):
     if M0 == M: return (1, 1) if CALC_LOSS(x) > L_THRES else (0, 0)
     
@@ -190,6 +196,24 @@ def BRUTE_FORCE(x, M0):
     return mu_gt, mu_mp
 
 
+def COMPLETE_STATE_ENUMERATION():
+    format = "{0:0%db}"%M
+    Loss = {}
+    
+    for count in range(2**M):
+        bin = format.format(count)
+
+        y = [1 if bin[j] == "1" else 0 for j in range(M)]
+
+        ly = CALC_LOSS(y)
+        py = PROD([p[j] if y[j] == 1 else 1 - p[j] for j in range(M)])
+
+        if not ly in Loss: Loss[ly] = py
+        else: Loss[ly] += py
+
+    return Loss
+
+    
 def NAIVE_MONTE_CARLO(Ns):
     Mu = [0] * Ns
     
@@ -204,21 +228,18 @@ def NAIVE_MONTE_CARLO(Ns):
 
 ##################################################
 
-
-V = ['s', 'ws1', 'ws2', 'pc1', 'pc2', 'pc3', 'pc4', 'pc5', 'pc6', 'pc7', 'pc8', 'pc9', 'as1', 'as2', 'db1']
-L = [0, 1, 1, 5, 5, 5, 5, 5, 5, 5, 5, 5, 10, 10, 25]
-E = [('s', 'ws1'), ('s', 'ws2'), ('ws1', 'ws2'), ('ws2', 'ws1'), ('ws1', 'pc1'), ('ws1', 'pc2'), ('ws1', 'pc3'), ('ws1', 'pc4'), ('ws1', 'pc5'), ('ws1', 'pc6'), ('ws1', 'pc7'), ('ws1', 'pc8'), ('ws1', 'pc9'), ('ws1', 'as1'), ('ws1', 'as2'), ('ws2', 'pc1'), ('ws2', 'pc2'), ('ws2', 'pc3'), ('ws2', 'pc4'), ('ws2', 'pc5'), ('ws2', 'pc6'), ('ws2', 'pc7'), ('ws2', 'pc8'), ('ws2', 'pc9'), ('ws2', 'as1'), ('ws2', 'as2'), ('pc1', 'pc2'), ('pc1', 'pc3'), ('pc1', 'pc4'), ('pc1', 'pc5'), ('pc1', 'pc6'), ('pc1', 'pc7'), ('pc1', 'pc8'), ('pc1', 'pc9'), ('pc1', 'as1'), ('pc1', 'as2'), ('pc2', 'pc1'), ('pc2', 'pc3'), ('pc2', 'pc4'), ('pc2', 'pc5'), ('pc2', 'pc6'), ('pc2', 'pc7'), ('pc2', 'pc8'), ('pc2', 'pc9'), ('pc2', 'as1'), ('pc2', 'as2'), ('pc3', 'pc1'), ('pc3', 'pc2'), ('pc3', 'pc4'), ('pc3', 'pc5'), ('pc3', 'pc6'), ('pc3', 'pc7'), ('pc3', 'pc8'), ('pc3', 'pc9'), ('pc3', 'as1'), ('pc3', 'as2'), ('pc4', 'pc1'), ('pc4', 'pc2'), ('pc4', 'pc3'), ('pc4', 'pc5'), ('pc4', 'pc6'), ('pc4', 'pc7'), ('pc4', 'pc8'), ('pc4', 'pc9'), ('pc4', 'as1'), ('pc4', 'as2'), ('pc5', 'pc1'), ('pc5', 'pc2'), ('pc5', 'pc3'), ('pc5', 'pc4'), ('pc5', 'pc6'), ('pc5', 'pc7'), ('pc5', 'pc8'), ('pc5', 'pc9'), ('pc5', 'as1'), ('pc5', 'as2'), ('pc6', 'pc1'), ('pc6', 'pc2'), ('pc6', 'pc3'), ('pc6', 'pc4'), ('pc6', 'pc5'), ('pc6', 'pc7'), ('pc6', 'pc8'), ('pc6', 'pc9'), ('pc6', 'as1'), ('pc6', 'as2'), ('pc7', 'pc1'), ('pc7', 'pc2'), ('pc7', 'pc3'), ('pc7', 'pc4'), ('pc7', 'pc5'), ('pc7', 'pc6'), ('pc7', 'pc8'), ('pc7', 'pc9'), ('pc7', 'as1'), ('pc7', 'as2'), ('pc8', 'pc1'), ('pc8', 'pc2'), ('pc8', 'pc3'), ('pc8', 'pc4'), ('pc8', 'pc5'), ('pc8', 'pc6'), ('pc8', 'pc7'), ('pc8', 'pc9'), ('pc8', 'as1'), ('pc8', 'as2'), ('pc9', 'pc1'), ('pc9', 'pc2'), ('pc9', 'pc3'), ('pc9', 'pc4'), ('pc9', 'pc5'), ('pc9', 'pc6'), ('pc9', 'pc7'), ('pc9', 'pc8'), ('pc9', 'as1'), ('pc9', 'as2'), ('as1', 'pc1'), ('as1', 'pc2'), ('as1', 'pc3'), ('as1', 'pc4'), ('as1', 'pc5'), ('as1', 'pc6'), ('as1', 'pc7'), ('as1', 'pc8'), ('as1', 'pc9'), ('as1', 'as2'), ('as2', 'pc1'), ('as2', 'pc2'), ('as2', 'pc3'), ('as2', 'pc4'), ('as2', 'pc5'), ('as2', 'pc6'), ('as2', 'pc7'), ('as2', 'pc8'), ('as2', 'pc9'), ('as2', 'as1'), ('as1', 'db1'), ('as2', 'db1')]
-p = [0.1, 0.1, 0.3, 0.3, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.001, 0.001, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.001, 0.001, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.001, 0.001]
+from campus1 import *
 
 M = len(E)
 N = len(V)
 
 logp = [log(pi) for pi in p]
-R = 0.9
+ratio = 0.99 #float(sys.argv[1])
 L_MAX = sum(L)
-L_THRES = R * L_MAX
+L_THRES = ratio * L_MAX
+Ns = 10000
 DEBUG = True
-SIM_INFO = "M=%d N=%d L_MAX=%.1f R=%.2f"%(M, N, L_MAX, R)
+SIM_INFO = "M=%d N=%d Ns=%s L_MAX=%.1f ratio=%.2f"%(M, N, Ns, L_MAX, ratio)
 CSET = {"info":SIM_INFO, "hit":0}
 
 assert(V[0] == "s")
@@ -231,10 +252,12 @@ print "p=", p
 
 ##################################################
 
-filename = "%s.txt"%SIM_INFO
+filename = "campus_N_%d_ratio_%d.txt"%(N, ratio*100)
 
 while True:
-    Mu, Loss, Elap = EST_MU(50)
+    Mu, Loss, Elap = EST_MU(10)
     openfile = open(filename, "a")
     openfile.write(",".join(map(str,Mu)) + "\n")
     openfile.close()
+    
+exit()
